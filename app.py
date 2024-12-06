@@ -1,3 +1,4 @@
+import bcrypt
 from flask import Flask, jsonify, request
 from database import db
 from models.user import User
@@ -5,7 +6,7 @@ from flask_login import LoginManager, login_user, current_user, logout_user, log
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = "your_secret_key"
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+pymysql://root:123@127.0.0.1:3306/user'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 login_manager = LoginManager()
@@ -41,7 +42,7 @@ def login():
     if username and password:
         user = User.query.filter_by(username=username).first()
 
-        if user and user.password_hash == password:
+        if user and bcrypt.checkpw(str.encode(password), str.encode(user.password_hash)):
             login_user(user)
             return 'Logged in successfully'
 
@@ -62,10 +63,11 @@ def signup():
     password = data.get('password')
     
     if username and password:
+        hashed_password = bcrypt.hashpw(str.encode(password), bcrypt.gensalt())
         user = User.query.filter_by(username=username).first()
         if user:
             return jsonify({"message": "User already exists"}), 400
-        new_user = User(username=username, password_hash=password)
+        new_user = User(username=username, password_hash=hashed_password, role='user')
         db.session.add(new_user)
         db.session.commit()
         return jsonify({"message": "User created successfully"}), 201
@@ -89,6 +91,9 @@ def update_user(id_user):
     
     user = User.query.get(id_user)
     
+    if id_user != current_user.id and current_user.role == "user":
+        return jsonify({"message": "You do not have permission to change other users' passwords."}), 403
+
     if user:
         data = request.json
         password = data.get('password')
@@ -108,8 +113,12 @@ def delete_user(id_user):
     
     user = User.query.get(id_user)
 
+
+    if current_user.role != 'admin':
+        return jsonify({"message": "You do not have permission to delete other users."}), 403
+    
     if id_user == current_user.id:
-        return jsonify({"message": "It's forbbiden delete current user"}), 403
+        return jsonify({"message": "It's forbidden delete current user"}), 403
     
     if user:
         db.session.delete(user)
